@@ -1,181 +1,179 @@
-import { useState, useRef } from 'react';
+import { useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 
 const WEEK_DAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
+function parseWeeks(value) {
+  const text = String(value).replace(/\s/g, '');
+  const rangeMatch = text.match(/(\d+)-(\d+)/);
+
+  if (!rangeMatch) {
+    return 'all';
+  }
+
+  const start = Number(rangeMatch[1]);
+  const end = Number(rangeMatch[2]);
+  const weeks = Array.from({ length: end - start + 1 }, (_, index) => start + index);
+
+  if (text.includes('单周')) {
+    return weeks.filter((week) => week % 2 === 1);
+  }
+
+  if (text.includes('双周')) {
+    return weeks.filter((week) => week % 2 === 0);
+  }
+
+  return weeks;
+}
+
+function parsePeriod(periodLabel, fallback) {
+  const match = String(periodLabel).match(/(\d+)/);
+  return match ? Number(match[1]) : fallback;
+}
+
+function parseCell(cellData, fallbackPeriod) {
+  const lines = String(cellData).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+
+  if (lines.length < 2) {
+    return null;
+  }
+
+  const [name, teacher = '', thirdLine = '', fourthLine = ''] = lines;
+  const hasOldScheduleLine = /\[\d+\s*-\s*\d+\s*节\]/.test(thirdLine);
+  const classroom = hasOldScheduleLine ? fourthLine : thirdLine;
+  const weeksLine = hasOldScheduleLine ? thirdLine : fourthLine;
+  const periodMatch = (hasOldScheduleLine ? thirdLine : '').match(/\[(\d+)\s*-\s*(\d+)\s*节\]/);
+  const period = periodMatch ? Math.ceil(Number(periodMatch[1]) / 2) : fallbackPeriod;
+
+  return {
+    name,
+    teacher,
+    classroom,
+    period,
+    weeks: parseWeeks(weeksLine),
+  };
+}
+
+function parseExcelData(rows) {
+  const courses = [];
+
+  rows.forEach((rowData, rowIndex) => {
+    const values = Object.values(rowData);
+    if (values.length < 2) return;
+
+    const rowPeriod = parsePeriod(values[0], rowIndex + 1);
+
+    values.slice(1, 8).forEach((cellData, dayIndex) => {
+      if (!cellData || typeof cellData !== 'string' || !cellData.trim()) return;
+
+      const parsed = parseCell(cellData, rowPeriod);
+      if (!parsed) return;
+
+      courses.push({
+        id: Date.now() + Math.random(),
+        name: parsed.name,
+        teacher: parsed.teacher,
+        classroom: parsed.classroom,
+        day: WEEK_DAYS[dayIndex],
+        period: parsed.period,
+        weeks: parsed.weeks,
+      });
+    });
+  });
+
+  const unique = new Map();
+  courses.forEach((course) => {
+    unique.set(`${course.name}-${course.day}-${course.period}-${JSON.stringify(course.weeks)}`, course);
+  });
+
+  return Array.from(unique.values());
+}
+
 export default function ExcelImport({ onImportSuccess }) {
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
   const fileInputRef = useRef(null);
-
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) {
-      processFile(file);
-    }
-  };
-
-  const handleFileSelect = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      processFile(file);
-    }
-  };
 
   const processFile = async (file) => {
     setIsLoading(true);
+    setError('');
+
     try {
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data, { type: 'array' });
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet);
+      const rows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+      const courses = parseExcelData(rows);
 
-      const courses = parseExcelData(jsonData);
-      if (courses.length > 0) {
-        onImportSuccess(courses);
+      if (courses.length === 0) {
+        setError('没有解析到课程。请检查文件是否按模板填写。');
+        return;
       }
-    } catch (error) {
-      console.error('导入失败:', error);
-      alert('导入失败，请检查Excel文件格式');
+
+      onImportSuccess(courses);
+    } catch (importError) {
+      console.error('导入失败:', importError);
+      setError('导入失败，请检查 Excel 文件格式。');
     } finally {
       setIsLoading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
-  const parseExcelData = (jsonData) => {
-    const courses = [];
+  const handleFileSelect = (event) => {
+    const file = event.target.files?.[0];
+    if (file) processFile(file);
+  };
 
-    for (let row = 0; row < jsonData.length; row++) {
-      const rowData = jsonData[row];
-      if (!rowData || Object.keys(rowData).length < 2) continue;
+  const handleDrop = (event) => {
+    event.preventDefault();
+    setIsDragging(false);
 
-      const keys = Object.keys(rowData);
-      const firstKey = keys[0];
-      const periodLabel = rowData[firstKey];
-      
-      if (!periodLabel || !periodLabel.includes('大节')) continue;
-
-      const periodNum = parseInt(periodLabel.replace('第', '').replace('大节', ''));
-
-      for (let col = 1; col < keys.length; col++) {
-        const cellData = rowData[keys[col]];
-        if (!cellData || typeof cellData !== 'string' || cellData.trim() === '') continue;
-
-        const lines = cellData.split('\n').filter(line => line.trim() !== '');
-        if (lines.length < 3) continue;
-
-        const courseName = lines[0].trim();
-        const teacher = lines[1].trim();
-        
-        const scheduleLine = lines[2].trim();
-        const classroom = lines.length >= 4 ? lines[3].trim() : '';
-
-        const weekMatch = scheduleLine.match(/(\d+)-(\d+)\(\[周\]\)/);
-        const periodMatch = scheduleLine.match(/\[(\d+)-(\d+)节\]/);
-
-        if (!periodMatch) continue;
-
-        const startPeriod = parseInt(periodMatch[1]);
-        const endPeriod = parseInt(periodMatch[2]);
-
-        let weekType = 'all';
-        if (weekMatch) {
-          const weekRange = scheduleLine;
-          if (weekRange.includes('单周')) {
-            weekType = 'odd';
-          } else if (weekRange.includes('双周')) {
-            weekType = 'even';
-          }
-        }
-
-        const dayIndex = col - 1;
-        if (dayIndex >= WEEK_DAYS.length) continue;
-
-        for (let p = startPeriod; p <= endPeriod; p++) {
-          courses.push({
-            id: Date.now() + Math.random() + p,
-            name: courseName,
-            teacher: teacher,
-            classroom: classroom,
-            day: WEEK_DAYS[dayIndex],
-            period: p,
-            weekType: weekType,
-          });
-        }
-      }
-    }
-
-    return courses;
+    const file = event.dataTransfer.files?.[0];
+    if (file) processFile(file);
   };
 
   const downloadTemplate = () => {
     const templateData = [
-      ['学生个人课表', '学年学期：2025-2026-2        班级：计机232        专业：计算机科学与技术        院系：计算机学院'],
-      ['', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'],
-      ['第一大节', '\n课程名\n老师名\n1-8([周])[01-02节]\n教室', '', '', '', '', '', ''],
-      ['第二大节', '', '\n课程名\n老师名\n1-8([周])[03-04节]\n教室', '', '', '', '', ''],
-      ['第三大节', '', '', '\n课程名\n老师名\n1-8([周])[05-06节]\n教室', '', '', '', ''],
-      ['第四大节', '', '', '', '\n课程名\n老师名\n1-8([周])[07-08节]\n教室', '', '', ''],
-      ['第五大节', '', '', '', '', '\n课程名\n老师名\n1-8([周])[09-10节]\n教室', '', ''],
+      ['节次', '周一', '周二', '周三', '周四', '周五', '周六', '周日'],
+      ['第 1 节', '创新创业\n周老师\n教学楼 C-402\n周次：1-16', '', '操作系统\n王老师\n机房 6\n周次：1-16', '', '', '', ''],
+      ['第 2 节', '', '', '', '软件工程\n孙老师\n教学楼 B-204\n周次：1-16', '计算机网络\n赵老师\n实验楼 203\n周次：1-16', '', ''],
+      ['第 3 节', '信息安全\n陈老师\n机房 8\n周次：1-16', '', '创新创业\n周老师\n教学楼 C-402\n周次：1-16', '', '', '', ''],
+      ['第 4 节', '', '计算机网络\n赵老师\n实验楼 203\n周次：1-16', '', '单片机及嵌入式系统\n刘老师\n实验楼 301\n周次：1-16', '', '', '软件工程\n孙老师\n教学楼 B-204\n周次：1-16'],
+      ['第 5 节', '', '', 'Python程序设计\n李老师\n机房 10\n周次：1-16', '', '操作系统\n王老师\n机房 6\n周次：1-16', 'Python程序设计\n李老师\n机房 10\n周次：1-16', ''],
     ];
 
     const worksheet = XLSX.utils.aoa_to_sheet(templateData);
+    worksheet['!cols'] = [{ wch: 12 }, ...Array.from({ length: 7 }, () => ({ wch: 32 }))];
+
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, '课程表模板');
-
-    const wscols = [
-      { wch: 16 },
-      { wch: 32 },
-      { wch: 32 },
-      { wch: 32 },
-      { wch: 32 },
-      { wch: 32 },
-      { wch: 32 },
-      { wch: 32 },
-    ];
-    worksheet['!cols'] = wscols;
-
     XLSX.writeFile(workbook, '课程表模板.xlsx');
   };
 
   return (
-    <div className="card">
-      <div className="card-header">
-        <h2 className="card-title">导入课表</h2>
-        <button className="btn btn-secondary" onClick={downloadTemplate}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" y1="15" x2="12" y2="3" />
-          </svg>
+    <section className="card">
+      <div className="card-header page-header">
+        <div>
+          <h1 className="page-title">导入课表</h1>
+          <p className="page-subtitle">模板与课程表页面一致：横向是星期，纵向是第 1-5 节。</p>
+        </div>
+        <button className="btn btn-secondary" type="button" onClick={downloadTemplate}>
           下载模板
         </button>
       </div>
 
-      <div
-        className="drop-zone"
-        style={{
-          border: `2px dashed ${isDragging ? '#007acc' : '#cbd5e1'}`,
-          borderRadius: '12px',
-          padding: '40px',
-          textAlign: 'center',
-          cursor: 'pointer',
-          transition: 'all 0.3s ease',
-          backgroundColor: isDragging ? 'rgba(0, 122, 204, 0.08)' : '#f8fafc',
+      <button
+        className={`drop-zone ${isDragging ? 'dragging' : ''}`}
+        type="button"
+        onDragOver={(event) => {
+          event.preventDefault();
+          setIsDragging(true);
         }}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
+        onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
       >
@@ -184,100 +182,24 @@ export default function ExcelImport({ onImportSuccess }) {
           type="file"
           accept=".xlsx,.xls"
           onChange={handleFileSelect}
-          style={{ display: 'none' }}
+          hidden
         />
 
-        {isLoading ? (
-          <div>
-            <div style={{
-              width: '40px',
-              height: '40px',
-              border: '3px solid #e2e8f0',
-              borderTopColor: '#007acc',
-              borderRadius: '50%',
-              animation: 'spin 1s linear infinite',
-              margin: '0 auto 16px',
-            }} />
-            <p style={{ fontSize: '14px', color: '#64748b' }}>正在解析文件...</p>
-          </div>
-        ) : (
-          <>
-            <svg
-              width="48"
-              height="48"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              style={{ color: '#007acc', marginBottom: '16px' }}
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#1e293b', marginBottom: '8px' }}>
-              {isDragging ? '释放文件开始导入' : '拖拽Excel文件到这里'}
-            </h3>
-            <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '16px' }}>
-              或点击选择文件
-            </p>
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '8px 16px',
-              borderRadius: '6px',
-              backgroundColor: '#ffffff',
-              fontSize: '13px',
-              color: '#64748b',
-              border: '1px solid #e2e8f0',
-            }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-                <line x1="16" y1="13" x2="8" y2="13" />
-                <line x1="16" y1="17" x2="8" y2="17" />
-                <polyline points="10 9 9 9 8 9" />
-              </svg>
-              支持 .xlsx / .xls 格式
-            </div>
-          </>
-        )}
-      </div>
+        <span className="drop-icon">{isLoading ? '⏳' : '📄'}</span>
+        <strong>{isLoading ? '正在解析文件...' : isDragging ? '释放文件开始导入' : '拖拽 Excel 文件到这里'}</strong>
+        <span>或点击选择文件</span>
+      </button>
 
-      <div style={{ marginTop: '20px', padding: '16px', borderRadius: '8px', backgroundColor: 'rgba(0, 122, 204, 0.1)' }}>
-        <h4 style={{ fontSize: '14px', fontWeight: '600', color: '#00a8e8', marginBottom: '8px' }}>
-          使用说明
-        </h4>
-        <ul style={{ fontSize: '13px', color: '#9ca3af', listStyle: 'none', padding: '0' }}>
-          <li style={{ marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ color: '#00a8e8' }}>•</span>
-            下载模板文件并填写课程信息
-          </li>
-          <li style={{ marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ color: '#00a8e8' }}>•</span>
-            每个单元格填写4行信息，用换行分隔
-          </li>
-          <li style={{ marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ color: '#00a8e8' }}>•</span>
-            格式：课程名 / 老师名 / 1-8([周])[01-02节] / 教室
-          </li>
-          <li style={{ marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ color: '#00a8e8' }}>•</span>
-            单周课程：1-8([单周])[01-02节]，双周课程：1-8([双周])[01-02节]
-          </li>
-          <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ color: '#00a8e8' }}>•</span>
-            也可直接导入学校课表Excel文件
-          </li>
+      {error && <div className="alert alert-error">{error}</div>}
+
+      <div className="help-panel">
+        <h2>填写格式</h2>
+        <ul>
+          <li>每个课程单元格按 4 行填写：课程名、教师、上课地点、周次。</li>
+          <li>示例：信息安全 / 陈老师 / 机房 8 / 周次：1-16。</li>
+          <li>单周或双周可写为：周次：1-16 单周、周次：1-16 双周。</li>
         </ul>
       </div>
-
-      <style>{`
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
-    </div>
+    </section>
   );
 }

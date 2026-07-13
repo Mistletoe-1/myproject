@@ -1,274 +1,283 @@
-import { useState, useEffect } from 'react';
-import ScheduleTable from './components/ScheduleTable';
-import ExcelImport from './components/ExcelImport';
-import HomeworkManager from './components/HomeworkManager';
-import CalendarView from './components/CalendarView';
-import Statistics from './components/Statistics';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 
-const MOCK_COURSES = [
-  { id: 1, name: '移动应用开发', teacher: '李明', classroom: '机房8', day: '周一', period: 2, weeks: [1,2,3,4] },
-  { id: 2, name: 'Python程序设计', teacher: '王芳', classroom: 'IT实训中心', day: '周一', period: 3, weeks: [5,6,7,8] },
-  { id: 3, name: '计算机网络', teacher: '张伟', classroom: '二东101', day: '周一', period: 5, weeks: [9,10,11,12] },
-  { id: 4, name: 'Linux操作系统', teacher: '赵强', classroom: '机房10', day: '周一', period: 2, weeks: [13,14,15,16] },
-  
-  { id: 5, name: '计算机系统结构', teacher: '孙磊', classroom: '二东102', day: '周二', period: 1, weeks: [1,2,3,4,5,6,7,8] },
-  { id: 6, name: '信息安全', teacher: '陈静', classroom: '二东102', day: '周二', period: 3, weeks: [9,10,11,12,13,14,15,16] },
-  { id: 7, name: '单片机及嵌入式系统', teacher: '刘洋', classroom: '机房7', day: '周二', period: 4, weeks: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16] },
-  { id: 8, name: '创新与创业', teacher: '周婷', classroom: '机房10', day: '周二', period: 2, weeks: [1,3,5,7,9,11,13,15] },
-  
-  { id: 9, name: '移动应用开发', teacher: '李明', classroom: '机房8', day: '周三', period: 4, weeks: [1,2,3,4] },
-  { id: 10, name: 'Python程序设计', teacher: '王芳', classroom: 'IT实训中心', day: '周三', period: 1, weeks: [5,6,7,8] },
-  { id: 11, name: '计算机网络', teacher: '张伟', classroom: '二东101', day: '周三', period: 5, weeks: [9,10,11,12] },
-  { id: 12, name: 'Linux操作系统', teacher: '赵强', classroom: '机房10', day: '周三', period: 3, weeks: [13,14,15,16] },
-  
-  { id: 13, name: '计算机系统结构', teacher: '孙磊', classroom: '二东103', day: '周四', period: 3, weeks: [1,2,3,4,5,6,7,8] },
-  { id: 14, name: '信息安全', teacher: '陈静', classroom: '二西401', day: '周四', period: 2, weeks: [9,10,11,12,13,14,15,16] },
-  { id: 15, name: '单片机及嵌入式系统', teacher: '刘洋', classroom: '机房7', day: '周四', period: 5, weeks: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16] },
-  { id: 16, name: '创新与创业', teacher: '周婷', classroom: '机房10', day: '周四', period: 4, weeks: [2,4,6,8,10,12,14,16] },
-  
-  { id: 17, name: '移动应用开发', teacher: '李明', classroom: '机房8', day: '周五', period: 1, weeks: [1,2,3,4] },
-  { id: 18, name: 'Python程序设计', teacher: '王芳', classroom: 'IT实训中心', day: '周五', period: 4, weeks: [5,6,7,8] },
-  { id: 19, name: '计算机网络', teacher: '张伟', classroom: '二东101', day: '周五', period: 2, weeks: [9,10,11,12] },
-  { id: 20, name: 'Linux操作系统', teacher: '赵强', classroom: '机房10', day: '周五', period: 5, weeks: [13,14,15,16] },
-  
-  { id: 21, name: '计算机系统结构', teacher: '孙磊', classroom: '二东102', day: '周六', period: 2, weeks: [1,3,5,7] },
-  { id: 22, name: '信息安全', teacher: '陈静', classroom: '二东102', day: '周六', period: 4, weeks: [9,11,13,15] },
-  
-  { id: 23, name: '单片机及嵌入式系统', teacher: '刘洋', classroom: '机房7', day: '周日', period: 1, weeks: [2,4,6,8] },
-  { id: 24, name: '创新与创业', teacher: '周婷', classroom: '机房10', day: '周日', period: 3, weeks: [10,12,14,16] },
+const ScheduleTable = lazy(() => import('./components/ScheduleTable'));
+const ExcelImport = lazy(() => import('./components/ExcelImport'));
+const HomeworkManager = lazy(() => import('./components/HomeworkManager'));
+const CalendarView = lazy(() => import('./components/CalendarView'));
+const Statistics = lazy(() => import('./components/Statistics'));
+
+const STORAGE_KEYS = {
+  activeTab: 'schedule-calendar-v3-active-tab',
+  courses: 'schedule-calendar-v3-courses',
+  homeworks: 'schedule-calendar-v3-homeworks',
+};
+
+const WEEK_DAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
+const SUBJECTS = [
+  { id: 1, name: '创新创业', teacher: '周老师', classroom: '教学楼 C-402' },
+  { id: 2, name: '信息安全', teacher: '陈老师', classroom: '机房 8' },
+  { id: 3, name: '单片机及嵌入式系统', teacher: '刘老师', classroom: '实验楼 301' },
+  { id: 4, name: '计算机网络', teacher: '赵老师', classroom: '实验楼 203' },
+  { id: 5, name: '操作系统', teacher: '王老师', classroom: '机房 6' },
+  { id: 6, name: 'Python程序设计', teacher: '李老师', classroom: '机房 10' },
+  { id: 7, name: '软件工程', teacher: '孙老师', classroom: '教学楼 B-204' },
 ];
 
-const MOCK_HOMEWORKS = [
-  {
-    id: 1,
-    title: 'React Native组件封装',
-    description: '封装一个可复用的下拉刷新组件，支持自定义刷新动画',
-    deadline: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
-    priority: 'high',
-    courseId: 1,
-    completed: false,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 2,
-    title: '数据可视化实战',
-    description: '使用matplotlib绘制销售数据趋势图，分析季度增长情况',
-    deadline: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString(),
-    priority: 'medium',
-    courseId: 2,
-    completed: false,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 3,
-    title: 'HTTP协议分析',
-    description: '抓包分析浏览器与服务器的HTTP交互过程，分析请求头和响应头',
-    deadline: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString(),
-    priority: 'high',
-    courseId: 3,
-    completed: false,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 4,
-    title: 'ADC采集实验',
-    description: '使用ADC模块采集模拟信号，实现温度传感器数据采集和显示',
-    deadline: new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString(),
-    priority: 'high',
-    courseId: 7,
-    completed: false,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 5,
-    title: '防火墙规则配置',
-    description: '配置iptables防火墙规则，实现端口转发和访问控制',
-    deadline: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(),
-    priority: 'medium',
-    courseId: 6,
-    completed: false,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 6,
-    title: '进程管理实验',
-    description: '实现进程创建、调度和销毁，观察进程状态变化',
-    deadline: new Date(Date.now() + 12 * 24 * 60 * 60 * 1000).toISOString(),
-    priority: 'low',
-    courseId: 4,
-    completed: false,
-    createdAt: new Date().toISOString(),
-  },
+const WEEKLY_SLOT_PATTERNS = [
+  [
+    [{ dayIndex: 0, period: 1 }, { dayIndex: 2, period: 3 }],
+    [{ dayIndex: 0, period: 3 }, { dayIndex: 3, period: 1 }],
+    [{ dayIndex: 1, period: 1 }, { dayIndex: 4, period: 4 }],
+    [{ dayIndex: 1, period: 4 }, { dayIndex: 5, period: 2 }],
+    [{ dayIndex: 2, period: 1 }, { dayIndex: 4, period: 5 }],
+    [{ dayIndex: 3, period: 2 }, { dayIndex: 6, period: 4 }],
+    [{ dayIndex: 4, period: 2 }, { dayIndex: 6, period: 1 }],
+  ],
+  [
+    [{ dayIndex: 0, period: 2 }, { dayIndex: 3, period: 5 }],
+    [{ dayIndex: 0, period: 4 }, { dayIndex: 4, period: 1 }],
+    [{ dayIndex: 1, period: 2 }, { dayIndex: 5, period: 5 }],
+    [{ dayIndex: 1, period: 5 }, { dayIndex: 4, period: 3 }],
+    [{ dayIndex: 2, period: 2 }, { dayIndex: 5, period: 1 }],
+    [{ dayIndex: 2, period: 4 }, { dayIndex: 6, period: 2 }],
+    [{ dayIndex: 3, period: 1 }, { dayIndex: 6, period: 5 }],
+  ],
+  [
+    [{ dayIndex: 0, period: 5 }, { dayIndex: 4, period: 2 }],
+    [{ dayIndex: 1, period: 1 }, { dayIndex: 3, period: 4 }],
+    [{ dayIndex: 1, period: 3 }, { dayIndex: 5, period: 1 }],
+    [{ dayIndex: 2, period: 1 }, { dayIndex: 6, period: 3 }],
+    [{ dayIndex: 2, period: 5 }, { dayIndex: 4, period: 4 }],
+    [{ dayIndex: 3, period: 2 }, { dayIndex: 5, period: 5 }],
+    [{ dayIndex: 0, period: 2 }, { dayIndex: 6, period: 1 }],
+  ],
+  [
+    [{ dayIndex: 0, period: 4 }, { dayIndex: 5, period: 2 }],
+    [{ dayIndex: 1, period: 2 }, { dayIndex: 4, period: 5 }],
+    [{ dayIndex: 2, period: 3 }, { dayIndex: 6, period: 5 }],
+    [{ dayIndex: 3, period: 1 }, { dayIndex: 5, period: 4 }],
+    [{ dayIndex: 4, period: 1 }, { dayIndex: 6, period: 3 }],
+    [{ dayIndex: 0, period: 1 }, { dayIndex: 2, period: 5 }],
+    [{ dayIndex: 1, period: 5 }, { dayIndex: 3, period: 3 }],
+  ],
+  [
+    [{ dayIndex: 0, period: 3 }, { dayIndex: 4, period: 1 }],
+    [{ dayIndex: 1, period: 4 }, { dayIndex: 6, period: 2 }],
+    [{ dayIndex: 2, period: 2 }, { dayIndex: 5, period: 5 }],
+    [{ dayIndex: 3, period: 5 }, { dayIndex: 6, period: 1 }],
+    [{ dayIndex: 4, period: 4 }, { dayIndex: 0, period: 1 }],
+    [{ dayIndex: 5, period: 2 }, { dayIndex: 1, period: 1 }],
+    [{ dayIndex: 2, period: 5 }, { dayIndex: 3, period: 2 }],
+  ],
+  [
+    [{ dayIndex: 0, period: 2 }, { dayIndex: 5, period: 4 }],
+    [{ dayIndex: 1, period: 5 }, { dayIndex: 3, period: 1 }],
+    [{ dayIndex: 2, period: 1 }, { dayIndex: 6, period: 4 }],
+    [{ dayIndex: 3, period: 3 }, { dayIndex: 5, period: 1 }],
+    [{ dayIndex: 4, period: 2 }, { dayIndex: 6, period: 5 }],
+    [{ dayIndex: 0, period: 5 }, { dayIndex: 2, period: 3 }],
+    [{ dayIndex: 1, period: 2 }, { dayIndex: 4, period: 5 }],
+  ],
+  [
+    [{ dayIndex: 0, period: 1 }, { dayIndex: 6, period: 3 }],
+    [{ dayIndex: 1, period: 3 }, { dayIndex: 4, period: 5 }],
+    [{ dayIndex: 2, period: 4 }, { dayIndex: 5, period: 1 }],
+    [{ dayIndex: 3, period: 2 }, { dayIndex: 6, period: 5 }],
+    [{ dayIndex: 4, period: 1 }, { dayIndex: 0, period: 4 }],
+    [{ dayIndex: 5, period: 3 }, { dayIndex: 1, period: 5 }],
+    [{ dayIndex: 2, period: 1 }, { dayIndex: 3, period: 4 }],
+  ],
+  [
+    [{ dayIndex: 0, period: 5 }, { dayIndex: 3, period: 2 }],
+    [{ dayIndex: 1, period: 1 }, { dayIndex: 5, period: 3 }],
+    [{ dayIndex: 2, period: 5 }, { dayIndex: 6, period: 1 }],
+    [{ dayIndex: 3, period: 4 }, { dayIndex: 0, period: 2 }],
+    [{ dayIndex: 4, period: 3 }, { dayIndex: 6, period: 5 }],
+    [{ dayIndex: 5, period: 1 }, { dayIndex: 1, period: 4 }],
+    [{ dayIndex: 2, period: 2 }, { dayIndex: 4, period: 5 }],
+  ],
+];
+
+const HOMEWORK_PLANS = [
+  ['创新创业', '商业模式画布', '完成一个校园服务类项目的商业模式画布，并写出核心用户画像。', 3, 'medium'],
+  ['信息安全', '密码学基础练习', '完成对称加密、非对称加密和哈希算法的对比表。', 4, 'high'],
+  ['单片机及嵌入式系统', 'GPIO 控制实验', '完成 LED 流水灯程序，整理电路连接图和实验现象。', 5, 'high'],
+  ['计算机网络', '网络分层分析', '绘制 TCP/IP 分层结构图，说明每层协议职责。', 7, 'medium'],
+  ['操作系统', '进程调度实验', '模拟先来先服务与时间片轮转调度算法。', 9, 'high'],
+  ['Python程序设计', '文件处理练习', '读取 CSV 数据并完成清洗、统计和结果导出。', 11, 'medium'],
+  ['软件工程', '需求分析文档', '整理课程管理系统的功能需求和非功能需求。', 13, 'low'],
 ];
 
 const NAV_ITEMS = [
-  { id: 'schedule', label: '课程表', icon: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-      <line x1="16" y1="2" x2="16" y2="6" />
-      <line x1="8" y1="2" x2="8" y2="6" />
-      <line x1="3" y1="10" x2="21" y2="10" />
-    </svg>
-  )},
-  { id: 'import', label: '导入课表', icon: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" y1="15" x2="12" y2="3" />
-    </svg>
-  )},
-  { id: 'homework', label: '作业管理', icon: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="9" cy="21" r="1" />
-      <circle cx="20" cy="21" r="1" />
-      <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-    </svg>
-  )},
-  { id: 'calendar', label: '日历视图', icon: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-      <line x1="16" y1="2" x2="16" y2="6" />
-      <line x1="8" y1="2" x2="8" y2="6" />
-      <line x1="3" y1="10" x2="21" y2="10" />
-    </svg>
-  )},
-  { id: 'statistics', label: '数据统计', icon: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M18 20V10" />
-      <path d="M12 20V4" />
-      <path d="M6 20v-6" />
-    </svg>
-  )},
+  { id: 'schedule', label: '课程表', icon: '📅' },
+  { id: 'import', label: '导入课表', icon: '📥' },
+  { id: 'homework', label: '作业管理', icon: '✅' },
+  { id: 'calendar', label: '日历视图', icon: '🗓️' },
+  { id: 'statistics', label: '数据统计', icon: '📊' },
 ];
 
-export default function App() {
-  const [activeTab, setActiveTab] = useState(() => {
-    const savedTab = localStorage.getItem('activeTab');
-    return savedTab || 'schedule';
+function addDays(days) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  date.setHours(23, 59, 0, 0);
+  return date.toISOString();
+}
+
+function createSampleCourses() {
+  const courses = [];
+
+  for (let week = 1; week <= 16; week += 1) {
+    const pattern = WEEKLY_SLOT_PATTERNS[(week - 1) % WEEKLY_SLOT_PATTERNS.length];
+
+    pattern.forEach((slotPair, slotPairIndex) => {
+      const subject = SUBJECTS[(slotPairIndex + week - 1) % SUBJECTS.length];
+
+      slotPair.forEach((slot, sessionIndex) => {
+        courses.push({
+          id: week * 1000 + subject.id * 10 + sessionIndex,
+          subjectId: subject.id,
+          name: subject.name,
+          teacher: subject.teacher,
+          classroom: subject.classroom,
+          day: WEEK_DAYS[slot.dayIndex],
+          period: slot.period,
+          weeks: [week],
+        });
+      });
+    });
+  }
+
+  return courses;
+}
+
+function createSampleHomeworks(courses) {
+  return HOMEWORK_PLANS.map(([subjectName, title, description, days, priority], index) => {
+    const course = courses.find((item) => item.name === subjectName);
+
+    return {
+      id: index + 1,
+      title,
+      description,
+      deadline: addDays(days),
+      priority,
+      courseId: course?.id ?? '',
+      completed: false,
+      createdAt: new Date().toISOString(),
+    };
   });
-  const [courses, setCourses] = useState([]);
-  const [homeworks, setHomeworks] = useState([]);
+}
+
+const SAMPLE_COURSES = createSampleCourses();
+const SAMPLE_HOMEWORKS = createSampleHomeworks(SAMPLE_COURSES);
+
+function readJsonStorage(key, fallback) {
+  const raw = localStorage.getItem(key);
+
+  if (!raw) {
+    return fallback;
+  }
+
+  try {
+    const value = JSON.parse(raw);
+    return Array.isArray(fallback) && !Array.isArray(value) ? fallback : value;
+  } catch {
+    return fallback;
+  }
+}
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState(() => localStorage.getItem(STORAGE_KEYS.activeTab) ?? 'schedule');
+  const [courses, setCourses] = useState(() => readJsonStorage(STORAGE_KEYS.courses, SAMPLE_COURSES));
+  const [homeworks, setHomeworks] = useState(() => readJsonStorage(STORAGE_KEYS.homeworks, SAMPLE_HOMEWORKS));
   const [toast, setToast] = useState(null);
-  const [isLoaded, setIsLoaded] = useState(false);
+
+  const pendingCount = useMemo(() => homeworks.filter((homework) => !homework.completed).length, [homeworks]);
 
   useEffect(() => {
-    const savedCourses = localStorage.getItem('courses');
-    const savedHomeworks = localStorage.getItem('homeworks');
-    
-    if (savedCourses) {
-      setCourses(JSON.parse(savedCourses));
-    } else {
-      setCourses(MOCK_COURSES);
-      localStorage.setItem('courses', JSON.stringify(MOCK_COURSES));
-    }
-    
-    if (savedHomeworks) {
-      setHomeworks(JSON.parse(savedHomeworks));
-    } else {
-      setHomeworks(MOCK_HOMEWORKS);
-      localStorage.setItem('homeworks', JSON.stringify(MOCK_HOMEWORKS));
-    }
-    
-    setIsLoaded(true);
-  }, []);
-
-  useEffect(() => {
-    if (isLoaded) {
-      localStorage.setItem('courses', JSON.stringify(courses));
-    }
-  }, [courses, isLoaded]);
-
-  useEffect(() => {
-    if (isLoaded) {
-      localStorage.setItem('homeworks', JSON.stringify(homeworks));
-    }
-  }, [homeworks, isLoaded]);
-
-  useEffect(() => {
-    localStorage.setItem('activeTab', activeTab);
+    localStorage.setItem(STORAGE_KEYS.activeTab, activeTab);
   }, [activeTab]);
 
   useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => setToast(null), 3000);
-      return () => clearTimeout(timer);
-    }
+    localStorage.setItem(STORAGE_KEYS.courses, JSON.stringify(courses));
+  }, [courses]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.homeworks, JSON.stringify(homeworks));
+  }, [homeworks]);
+
+  useEffect(() => {
+    if (!toast) return undefined;
+
+    const timer = window.setTimeout(() => setToast(null), 3000);
+    return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const showToast = (message, type = 'success') => {
+  const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
-  };
+  }, []);
 
-  const handleResetData = () => {
-    if (confirm('确定要重置所有数据吗？这将恢复到初始状态。')) {
-      localStorage.removeItem('courses');
-      localStorage.removeItem('homeworks');
-      setIsLoaded(false);
-      setTimeout(() => {
-        setCourses(MOCK_COURSES);
-        setHomeworks(MOCK_HOMEWORKS);
-        localStorage.setItem('courses', JSON.stringify(MOCK_COURSES));
-        localStorage.setItem('homeworks', JSON.stringify(MOCK_HOMEWORKS));
-        setIsLoaded(true);
-        showToast('数据已重置');
-      }, 0);
+  const handleResetData = useCallback(() => {
+    if (!window.confirm('确定要重置所有课程和作业吗？')) {
+      return;
     }
-  };
 
-  const handleAddCourse = (course) => {
-    setCourses([...courses, course]);
+    const nextCourses = createSampleCourses();
+    setCourses(nextCourses);
+    setHomeworks(createSampleHomeworks(nextCourses));
+    showToast('课程和作业已重置');
+  }, [showToast]);
+
+  const handleAddCourse = useCallback((course) => {
+    setCourses((current) => [...current, course]);
     showToast('课程添加成功');
-  };
+  }, [showToast]);
 
-  const handleUpdateCourse = (updatedCourse) => {
-    setCourses(courses.map(c => c.id === updatedCourse.id ? updatedCourse : c));
+  const handleUpdateCourse = useCallback((updatedCourse) => {
+    setCourses((current) => current.map((course) => (course.id === updatedCourse.id ? updatedCourse : course)));
     showToast('课程更新成功');
-  };
+  }, [showToast]);
 
-  const handleDeleteCourse = (id) => {
-    setCourses(courses.filter(c => c.id !== id));
+  const handleDeleteCourse = useCallback((id) => {
+    setCourses((current) => current.filter((course) => course.id !== id));
     showToast('课程已删除', 'info');
-  };
+  }, [showToast]);
 
-  const handleImportCourses = (importedCourses) => {
+  const handleImportCourses = useCallback((importedCourses) => {
     setCourses(importedCourses);
-    showToast(`成功导入 ${importedCourses.length} 门课程`);
-  };
+    showToast(`成功导入 ${importedCourses.length} 条课程安排`);
+    setActiveTab('schedule');
+  }, [showToast]);
 
-  const handleAddHomework = (homework) => {
-    setHomeworks([...homeworks, homework]);
+  const handleAddHomework = useCallback((homework) => {
+    setHomeworks((current) => [...current, homework]);
     showToast('作业添加成功');
-  };
+  }, [showToast]);
 
-  const handleUpdateHomework = (updatedHomework) => {
-    setHomeworks(homeworks.map(hw => hw.id === updatedHomework.id ? updatedHomework : hw));
+  const handleUpdateHomework = useCallback((updatedHomework) => {
+    setHomeworks((current) => current.map((homework) => (homework.id === updatedHomework.id ? updatedHomework : homework)));
     showToast('作业更新成功');
-  };
+  }, [showToast]);
 
-  const handleToggleComplete = (id) => {
-    setHomeworks(homeworks.map(hw => 
-      hw.id === id 
-        ? { ...hw, completed: !hw.completed, completedAt: !hw.completed ? new Date().toISOString() : null }
-        : hw
-    ));
-  };
+  const handleToggleComplete = useCallback((id) => {
+    setHomeworks((current) => current.map((homework) => (
+      homework.id === id
+        ? {
+          ...homework,
+          completed: !homework.completed,
+          completedAt: homework.completed ? null : new Date().toISOString(),
+        }
+        : homework
+    )));
+  }, []);
 
-  const handleDeleteHomework = (id) => {
-    setHomeworks(homeworks.filter(hw => hw.id !== id));
+  const handleDeleteHomework = useCallback((id) => {
+    setHomeworks((current) => current.filter((homework) => homework.id !== id));
     showToast('作业已删除', 'info');
-  };
+  }, [showToast]);
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'schedule':
-        return (
-          <ScheduleTable
-            courses={courses}
-            onAddCourse={handleAddCourse}
-            onUpdateCourse={handleUpdateCourse}
-            onDeleteCourse={handleDeleteCourse}
-          />
-        );
       case 'import':
         return <ExcelImport onImportSuccess={handleImportCourses} />;
       case 'homework':
@@ -286,6 +295,7 @@ export default function App() {
         return <CalendarView homeworks={homeworks} courses={courses} />;
       case 'statistics':
         return <Statistics courses={courses} homeworks={homeworks} />;
+      case 'schedule':
       default:
         return (
           <ScheduleTable
@@ -303,39 +313,43 @@ export default function App() {
       <aside className="sidebar">
         <div className="logo-section">
           <div className="logo">
-            <div className="logo-icon">📅</div>
-            <span className="logo-text">课程表助手</span>
+            <div className="logo-icon">课</div>
+            <div>
+              <span className="logo-text">课表助手</span>
+              <p className="logo-subtitle">{pendingCount} 个待完成作业</p>
+            </div>
           </div>
         </div>
-        <nav className="nav-list">
+
+        <nav className="nav-list" aria-label="主导航">
           {NAV_ITEMS.map((item) => (
-            <div
+            <button
               key={item.id}
+              type="button"
               className={`nav-item ${activeTab === item.id ? 'active' : ''}`}
               onClick={() => setActiveTab(item.id)}
             >
-              {item.icon}
+              <span className="nav-icon" aria-hidden="true">{item.icon}</span>
               <span>{item.label}</span>
-            </div>
+            </button>
           ))}
         </nav>
+
         <div className="sidebar-footer">
-          <button 
-            className="btn btn-secondary btn-sm" 
-            onClick={handleResetData}
-            style={{ width: '100%' }}
-          >
-            重置数据
+          <button className="btn btn-secondary btn-sm full-width" type="button" onClick={handleResetData}>
+            重置课程与作业
           </button>
         </div>
       </aside>
 
       <main className="main-content">
-        {renderContent()}
+        <Suspense fallback={<div className="card loading-card">正在加载...</div>}>
+          {renderContent()}
+        </Suspense>
       </main>
 
       {toast && (
-        <div className={`toast toast-${toast.type}`}>
+        <div className={`toast toast-${toast.type}`} role="status">
           {toast.message}
         </div>
       )}
