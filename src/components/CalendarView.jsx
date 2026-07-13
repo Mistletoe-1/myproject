@@ -61,7 +61,9 @@ export default function CalendarView({ homeworks, courses }) {
 
   const selectedHomeworks = useMemo(() => {
     const key = toLocalDateKey(selectedDate);
-    return (homeworksByDate.get(key) ?? []).slice().sort((left, right) => new Date(left.deadline) - new Date(right.deadline));
+    return (homeworksByDate.get(key) ?? [])
+      .slice()
+      .sort((left, right) => new Date(left.deadline) - new Date(right.deadline));
   }, [homeworksByDate, selectedDate]);
 
   const prevMonth = () => {
@@ -81,8 +83,8 @@ export default function CalendarView({ homeworks, courses }) {
   const getCourseName = (courseId) => courseMap.get(String(courseId))?.name ?? '未指定课程';
 
   return (
-    <section className="card">
-      <div className="card-header page-header">
+    <section className="card calendar-card">
+      <div className="card-header page-header calendar-page-header">
         <div>
           <h1 className="page-title">作业日历</h1>
           <p className="page-subtitle">点击日期查看当天需要提交的作业。</p>
@@ -93,11 +95,11 @@ export default function CalendarView({ homeworks, courses }) {
       </div>
 
       <div className="calendar-layout">
-        <div>
+        <div className="calendar-main">
           <div className="calendar-toolbar">
-            <button className="btn btn-secondary btn-sm" type="button" onClick={prevMonth} aria-label="上个月">‹</button>
+            <button className="btn btn-secondary btn-sm calendar-arrow" type="button" onClick={prevMonth} aria-label="上个月">‹</button>
             <h2>{currentDate.getFullYear()} 年 {currentDate.getMonth() + 1} 月</h2>
-            <button className="btn btn-secondary btn-sm" type="button" onClick={nextMonth} aria-label="下个月">›</button>
+            <button className="btn btn-secondary btn-sm calendar-arrow" type="button" onClick={nextMonth} aria-label="下个月">›</button>
           </div>
 
           <div className="calendar-grid">
@@ -106,7 +108,7 @@ export default function CalendarView({ homeworks, courses }) {
             ))}
 
             {days.map((date, index) => {
-              if (!date) return <div key={`empty-${index}`} />;
+              if (!date) return <div key={`empty-${index}`} className="calendar-empty-cell" />;
 
               const dateKey = toLocalDateKey(date);
               const homeworkCount = homeworksByDate.get(dateKey)?.length ?? 0;
@@ -119,10 +121,11 @@ export default function CalendarView({ homeworks, courses }) {
                   type="button"
                   className={`calendar-day ${today ? 'today' : ''} ${selected ? 'selected' : ''}`}
                   onClick={() => setSelectedDate(date)}
+                  aria-label={`${date.getMonth() + 1}月${date.getDate()}日，${homeworkCount}项作业`}
                 >
                   <span>{date.getDate()}</span>
                   {homeworkCount > 0 && (
-                    <small>{homeworkCount} 项</small>
+                    <small>{homeworkCount}项</small>
                   )}
                 </button>
               );
@@ -131,13 +134,11 @@ export default function CalendarView({ homeworks, courses }) {
         </div>
 
         <aside className="day-panel">
-          <h2>
-            {selectedDate.getMonth() + 1} 月 {selectedDate.getDate()} 日
-          </h2>
+          <h2>{selectedDate.getMonth() + 1} 月 {selectedDate.getDate()} 日</h2>
           <p>{selectedHomeworks.length === 0 ? '当天没有待提交作业。' : `共 ${selectedHomeworks.length} 个作业`}</p>
 
           {selectedHomeworks.length === 0 ? (
-            <div className="empty-state compact">
+            <div className="empty-state compact calendar-empty-state">
               <div className="empty-icon">📭</div>
               <h3>暂无作业</h3>
             </div>
